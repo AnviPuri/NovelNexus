@@ -1,7 +1,12 @@
 import json
 import time
+import re
+import hashlib
+import random
+import string
 
 from selenium import webdriver
+from selenium.common import NoSuchElementException
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
@@ -10,77 +15,102 @@ from webdriver_manager.chrome import ChromeDriverManager
 service = Service(ChromeDriverManager().install())
 driver = webdriver.Chrome(service=service)
 
-continue_loop = True
-url = None
 books_data = []
 book_number = 1
 
+# Mapping for rating conversion
+rating_map = {
+    'One': 1,
+    'Two': 2,
+    'Three': 3,
+    'Four': 4,
+    'Five': 5
+}
 
-def scrape_page(url):
+
+def create_custom_id(title, timestamp):
+    """
+    Function to create a custom unique ID for each book using the title, timestamp, and a random string.
+    """
+    random_text = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+    unique_string = f"{title}-{timestamp}-{random_text}"
+    return hashlib.md5(unique_string.encode()).hexdigest()
+
+
+def scrape_page(page_url):
+
     # Open the webpage
-    driver.get(url)
+    driver.get(page_url)
     time.sleep(2)
 
     global book_number
 
-    # get all elements which are articles with class product pod
+    # get all elements which are articles with class - product pod
     book_elements = driver.find_elements(By.XPATH, '//article[@class="product_pod"]')
 
     for book in book_elements:
-        # Add id, link to image, availbilty count
+
         title_element = book.find_element(By.XPATH, './/h3/a')
         title = title_element.get_attribute('title')
+
         price = book.find_element(By.XPATH, './/div[@class="product_price"]/p[@class="price_color"]').text
+
         rating_class = book.find_element(By.XPATH, './/p[contains(@class, "star-rating")]').get_attribute(
             'class')
-        rating = rating_class.split()[-1]  # Get the last class name which represents the rating
-        # In-stock availability is represented by the presence of "In stock" text
-        instock = book.find_element(By.XPATH, './/p[@class="instock availability"]').text.strip()
+        rating_text = rating_class.split()[-1]
+        rating = rating_map.get(rating_text, 0)
+
+        img_url = book.find_element(By.XPATH, './/img').get_attribute('src')
 
         # Get the link to the book's detail page
         detail_page_url = title_element.get_attribute('href')
 
         # Open the book's detail page
         driver.get(detail_page_url)
-
-        # Wait for the detail page to load
         time.sleep(2)
 
-        # Scrape the book description
         description_element = driver.find_element(By.XPATH, '//meta[@name="description"]')
         description = description_element.get_attribute('content').strip()
 
         category = driver.find_element(By.XPATH, '//ul[@class="breadcrumb"]/li[3]/a').text
 
-        print(f'Details for Book {book_number}')
-        print(f'Title: {title}')
-        print(f'Price: {price}')
-        print(f'Rating: {rating}')
-        print(f'In stock: {instock}')
-        print(f'Description: {description}')
-        print(f'Category: {category}')
+        try:
+            in_stock_element = driver.find_element(By.XPATH, '//p[@class="instock availability"]')
+            in_stock = in_stock_element.text.strip().split('\n')[0]
+            is_in_stock = "In stock" in in_stock
+
+            # Extract availability count using regex
+            availability_count = re.search(r'\d+', in_stock)
+            availability_count = availability_count.group() if availability_count else "0"
+        except:
+            is_in_stock = False
+            availability_count = "0"
+
+        # Generating a custom ID for the book
+        timestamp = int(time.time())  # Current timestamp
+        custom_id = create_custom_id(title, timestamp)
+
         book_number += 1
 
         # Collect the data in a dictionary
         book_data = {
+            'id': custom_id,
             'title': title,
             'price': price,
             'rating': rating,
-            'in_stock': instock,
+            'is_in_stock': is_in_stock,
+            'availability_count': availability_count,
             'description': description,
-            'category': category
+            'category': category,
+            'book_cover_url': img_url
         }
 
-        # Add the dictionary to the list
         books_data.append(book_data)
         # Return to the main page
         driver.back()
-
-        # Wait for the main page to load
         time.sleep(2)
 
 
-# Initial URL
 url = 'https://books.toscrape.com/catalogue/page-1.html'
 
 try:
@@ -92,7 +122,7 @@ try:
             next_button = driver.find_element(By.XPATH, '//li[@class="next"]/a')
             next_url = next_button.get_attribute('href')
             url = next_url
-        except:
+        except NoSuchElementException:
             # When no "Next" button is found, end the loop
             break
 
