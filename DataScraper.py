@@ -15,6 +15,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 service = Service(ChromeDriverManager().install())
 driver = webdriver.Chrome(service=service)
 
+
 books_data = []
 book_number = 1
 
@@ -54,6 +55,7 @@ def scrape_page(page_url):
         title = title_element.get_attribute('title')
 
         price = book.find_element(By.XPATH, './/div[@class="product_price"]/p[@class="price_color"]').text
+        
 
         rating_class = book.find_element(By.XPATH, './/p[contains(@class, "star-rating")]').get_attribute(
             'class')

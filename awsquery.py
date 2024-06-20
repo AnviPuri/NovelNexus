@@ -116,7 +116,7 @@ def main():
     insert_data(dynamodb_resource, 'NovelNexus', data)
 
     # Query data
-    query_data(dynamodb_resource, 'NovelNexus', {'id': '4ac28e625efc77621cfca88d79b76b38'})
+    query_data(dynamodb_resource, 'NovelNexus', {'id': 'cd046b3efd6f201bfaa22513d1a5fe49'})
 
 
 if __name__ == "__main__":
