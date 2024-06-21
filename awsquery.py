@@ -259,7 +259,6 @@ def main():
     # Query data
     query_data(dynamodb_resource, 'books', {'id': '4eb5a11d3cb71f5bec815c5b950bc2d8', 'title' : 'Tipping the '
                                                                                                      'Velvet'})
-
     query_sorted_data(dynamodb_client, 'books')
 
 
