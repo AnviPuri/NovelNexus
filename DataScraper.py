@@ -38,7 +38,6 @@ def create_custom_id(title, timestamp):
 
 
 def scrape_page(page_url):
-
     # Open the webpage
     driver.get(page_url)
     time.sleep(2)
@@ -53,7 +52,11 @@ def scrape_page(page_url):
         title_element = book.find_element(By.XPATH, './/h3/a')
         title = title_element.get_attribute('title')
 
+        price_numeric = 0.0
         price = book.find_element(By.XPATH, './/div[@class="product_price"]/p[@class="price_color"]').text
+        match = re.search(r'[\d,\.]+', price)
+        if match:
+            price_numeric = float(match.group().replace(",", ""))
 
         rating_class = book.find_element(By.XPATH, './/p[contains(@class, "star-rating")]').get_attribute(
             'class')
@@ -96,7 +99,7 @@ def scrape_page(page_url):
         book_data = {
             'id': custom_id,
             'title': title,
-            'price': price,
+            'price': price_numeric,
             'rating': rating,
             'is_in_stock': is_in_stock,
             'availability_count': availability_count,
