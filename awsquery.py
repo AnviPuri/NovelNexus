@@ -1,16 +1,12 @@
+import hashlib
 import json
-from decimal import Decimal, getcontext, Context
-from random import random
+import string
+import time
+from decimal import Decimal
+import random
+
 from boto3.dynamodb.types import TypeDeserializer
 from botocore.exceptions import ClientError
-
-import boto3
-import json
-import time
-import re
-import hashlib
-import random
-import string
 
 
 def create_custom_id(title, timestamp):
@@ -46,6 +42,7 @@ def create_table(dynamodb_client, table_name, key_schema, attribute_definitions)
 
 
 def insert_book_data(dynamodb_client, dynamodb_resource, table_name, data):
+    """ Function to insert data in DynamoDB tables """
     table = dynamodb_resource.Table(table_name)
     for item in data:
         key = {
@@ -53,11 +50,14 @@ def insert_book_data(dynamodb_client, dynamodb_resource, table_name, data):
             'title': item['title']
         }
         response = table.get_item(Key=key)
+        # adding data if item does not already exist
         if "Item" not in response:
             category_name = item['category']
+            # adding category to category table if it does not exist
             category_id = insert_category_data(dynamodb_client, dynamodb_resource, category_name)
             item['category'] = category_id
             item['price'] = Decimal(str(item['price']))
+            item['availability_count'] = int(item['availability_count'])
             table.put_item(Item=item)
             print(f"Inserted item with id: {item['id']}")
         else:
@@ -67,6 +67,7 @@ def insert_book_data(dynamodb_client, dynamodb_resource, table_name, data):
 
 def insert_category_data(dynamodb_client, dynamodb_resource, category_name):
     table_name = "categories"
+    # category is only added if it does not already exist in the category table
     if not does_category_exist(dynamodb_client, table_name, category_name):
         category_id = None
         timestamp = int(time.time())
@@ -85,6 +86,24 @@ def insert_category_data(dynamodb_client, dynamodb_resource, category_name):
         return query_category_by_name(dynamodb_client, 'categories', category_name)
 
 
+def query_category_data(dynamodb_client, table_name, global_category_list):
+    """
+        query to fetch all categories from the category table
+    """
+    try:
+        query = f"""
+            SELECT * FROM {table_name}
+            """
+        response = dynamodb_client.execute_statement(Statement=query)
+
+        for item in response['Items']:
+            deserialized_item = deserialize_item(item)
+            global_category_list.append(deserialized_item)
+
+    except dynamodb_client.exceptions.ClientError as e:
+        print(f"An error occurred: {e}")
+
+
 def query_data(dynamodb_resource, table_name, key):
     table = dynamodb_resource.Table(table_name)
     response = table.get_item(Key=key)
@@ -97,19 +116,179 @@ def query_data(dynamodb_resource, table_name, key):
         print("Item not found.")
 
 
-def query_sorted_data(dynamodb_client, table_name):
+def query_books_grouped_by_category(dynamodb_client, table_name, category_dict):
     try:
+        # query to fetch all books
         query = f"""
             SELECT * FROM {table_name}
-            WHERE price>30
             """
 
         response = dynamodb_client.execute_statement(Statement=query)
 
+        books_by_category = {}
+        # traversing fetched books
         for item in response['Items']:
-            print(item)
+            deserialized_item = deserialize_item(item)
+            category_id = deserialized_item['category']
+            deserialized_item['category_name'] = category_dict[category_id]
+            if category_id not in books_by_category:
+                books_by_category[category_id] = []
+            # book added to the category it belongs to
+            books_by_category[category_id].append(deserialized_item)
+
+        return books_by_category
     except dynamodb_client.exceptions.ClientError as e:
         print(f"An error occurred: {e}")
+        return None
+
+
+def query_books_by_availability(dynamodb_client, table_name, max_availability_count, min_availability_count,
+                                availability_count, operation):
+    """
+            Query to fetch books based on availability
+    """
+    books = []
+    global query, parameters
+    try:
+        if operation == "<=":
+            print(f"Query for availability Count <= {availability_count}")
+            query = f"""
+                        SELECT * FROM {table_name}
+                        WHERE availability_count <= ?
+                    """
+            parameters = [
+                {'N': str(availability_count)}
+            ]
+        elif operation == ">=":
+            print(f"Query for availability Count >= {availability_count}")
+            query = f"""
+                        SELECT * FROM {table_name}
+                        WHERE availability_count >= ?
+                    """
+            parameters = [
+                {'N': str(availability_count)}
+            ]
+        elif operation == "[]":
+            print(f"Query for availability Count between {min_availability_count} and {max_availability_count}")
+            query = f"""
+                        SELECT * FROM {table_name}
+                        WHERE availability_count BETWEEN ? AND ?
+                    """
+            parameters = [
+                {'N': str(min_availability_count)},
+                {'N': str(max_availability_count)}
+            ]
+        response = dynamodb_client.execute_statement(
+            Statement=query,
+            Parameters=parameters
+        )
+        for item in response['Items']:
+            deserialized_item = deserialize_item(item)
+            books.append(deserialized_item)
+
+    except dynamodb_client.exceptions.ClientError as e:
+        print(f"An error occurred: {e}")
+
+    return books
+
+
+def query_books_by_price(dynamodb_client, table_name, max_price, min_price,
+                         price, operation):
+    """
+                Query to fetch books based on price
+    """
+    books = []
+    global query, parameters
+    try:
+        if operation == "<=":
+            print(f"Query for price <= {price}")
+            query = f"""
+                            SELECT * FROM {table_name}
+                            WHERE price <= ?
+                        """
+            parameters = [
+                {'N': str(price)}
+            ]
+        elif operation == ">=":
+            print(f"Query for price >= {price}")
+            query = f"""
+                            SELECT * FROM {table_name}
+                            WHERE price >= ?
+                        """
+            parameters = [
+                {'N': str(price)}
+            ]
+        elif operation == "[]":
+            print(f"Query for price between {min_price} and {max_price}")
+            query = f"""
+                            SELECT * FROM {table_name}
+                            WHERE price BETWEEN ? AND ?
+                        """
+            parameters = [
+                {'N': str(min_price)},
+                {'N': str(max_price)}
+            ]
+        response = dynamodb_client.execute_statement(
+            Statement=query,
+            Parameters=parameters
+        )
+        for item in response['Items']:
+            deserialized_item = deserialize_item(item)
+            books.append(deserialized_item)
+
+    except dynamodb_client.exceptions.ClientError as e:
+        print(f"An error occurred: {e}")
+
+    return books
+
+
+def query_books_by_rating(dynamodb_client, table_name,
+                          rating, operation):
+    """
+                Query to fetch books based on rating
+    """
+    books = []
+    global query, parameters
+    try:
+        if operation == "<=":
+            print(f"Executing query for rating <= {rating}")
+            query = f"""
+                                SELECT * FROM {table_name}
+                                WHERE rating <= ?
+                            """
+            parameters = [
+                {'N': str(rating)}
+            ]
+        elif operation == ">=":
+            print(f"Executing query for rating >= {rating}")
+            query = f"""
+                                SELECT * FROM {table_name}
+                                WHERE rating >= ?
+                            """
+            parameters = [
+                {'N': str(rating)}
+            ]
+        elif operation == "=":
+            print(f"Executing query for rating = {rating}")
+            query = f"""
+                                SELECT * FROM {table_name}
+                                WHERE rating = ?
+                            """
+            parameters = [
+                {'N': str(rating)}
+            ]
+        response = dynamodb_client.execute_statement(
+            Statement=query,
+            Parameters=parameters
+        )
+        for item in response['Items']:
+            deserialized_item = deserialize_item(item)
+            books.append(deserialized_item)
+
+    except dynamodb_client.exceptions.ClientError as e:
+        print(f"An error occurred: {e}")
+
+    return books
 
 
 def query_category_by_name(dynamodb_client, table_name, category_name):
@@ -144,8 +323,12 @@ def query_category_by_name(dynamodb_client, table_name, category_name):
 
 
 def does_category_exist(dynamodb_client, table_name, category_name):
+    """
+        function to check if category already exists
+    """
     category_name = category_name
     try:
+        # query to fetch category by category name
         query = f"""
             SELECT * FROM {table_name}
             WHERE category_name = ?
@@ -186,81 +369,3 @@ def deserialize_item(item):
         else:
             deserialized_item[key] = value  # Fallback to the original value if not deserializable
     return deserialized_item
-
-
-def main():
-    # Load AWS credentials from the configuration file
-    with open('aws_config.json') as config_file:
-        config = json.load(config_file)
-
-    aws_access_key_id = config['aws_access_key_id']
-    aws_secret_access_key = config['aws_secret_access_key']
-    region_name = config['region_name']
-
-    dynamodb_resource = boto3.resource(
-        'dynamodb',
-        region_name=region_name,
-        aws_access_key_id=aws_access_key_id,
-        aws_secret_access_key=aws_secret_access_key
-    )
-
-    dynamodb_client = boto3.client(
-        'dynamodb',
-        region_name=region_name,
-        aws_access_key_id=aws_access_key_id,
-        aws_secret_access_key=aws_secret_access_key
-    )
-
-    # Create books table
-    create_table(
-        dynamodb_client,
-        'books',
-        [
-            {
-                'AttributeName': 'id',
-                'KeyType': 'HASH'
-            },
-            {
-                'AttributeName': 'title',
-                'KeyType': 'RANGE'
-            }
-        ],
-        [
-            {
-                'AttributeName': 'id',
-                'AttributeType': 'S'
-            },
-            {
-                'AttributeName': 'title',
-                'AttributeType': 'S'
-            }
-        ]
-    )
-
-    # Create categories table
-    create_table(
-        dynamodb_client,
-        'categories',
-        [
-            {'AttributeName': 'id', 'KeyType': 'HASH'}  # Partition key
-        ],
-        [
-            {'AttributeName': 'id', 'AttributeType': 'S'}
-        ]
-    )
-
-    # Load data from JSON file
-    with open('books_data.json') as json_file:
-        data = json.load(json_file)
-
-    # Insert data
-    insert_book_data(dynamodb_client, dynamodb_resource, 'books', data)
-
-    # Query data
-    query_data(dynamodb_resource, 'books', {'id': '4eb5a11d3cb71f5bec815c5b950bc2d8', 'title' : 'Tipping the '
-                                                                                                     'Velvet'})
-    query_sorted_data(dynamodb_client, 'books')
-
-
-if __name__ == "__main__":
-    main()

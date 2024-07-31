@@ -31,7 +31,7 @@
                                         <xs:element name="is_in_stock" type="xs:boolean"/>
                                         <xs:element name="availability_count" type="xs:integer"/>
                                         <xs:element name="description" type="xs:string"/>
-                                        <xs:element name="category_id" type="xs:integer"/>
+                                        <xs:element name="category_id" type="xs:string"/>
                                         <xs:element name="book_cover_url" type="xs:string"/>
                                     </xs:sequence>
                                 </xs:complexType>
